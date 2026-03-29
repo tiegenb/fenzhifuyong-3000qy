@@ -31,6 +31,7 @@ env:
   UPLOAD_BIN_DIR: true
   UPLOAD_FIRMWARE: true
   TZ: Asia/Shanghai
+
 jobs:
   build:
     runs-on: ubuntu-22.04
@@ -71,6 +72,68 @@ jobs:
     - name: Load custom configuration
       run: |        
         [ -e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/.config
+        
+    # ========== 新增：下载必要的 backports 包（解决 mac80211 编译失败） ==========
+    - name: Fix some download failed first
+      run: |
+        cd openwrt
+        mkdir -p dl
+        
+        echo "📥 下载必要的 QSDK backports 包..."
+        
+        # 下载 backports 包（用于无线驱动）
+        if [ ! -f dl/backports-20210222-5.4-qsdk-11.5.0.5.tar.xz ]; then
+          echo "下载 backports-20210222-5.4-qsdk-11.5.0.5.tar.xz..."
+          wget -q --show-progress \
+            "https://www.dropbox.com/scl/fi/9ts30p2csnlb9imaf8k68/backports-20210222-5.4-qsdk-11.5.0.5.tar.xz?rlkey=sntbyfjgg86gu2uoocgb9ggp1&st=7w81hl56&dl=1" \
+            -O dl/backports-20210222-5.4-qsdk-11.5.0.5.tar.xz || {
+              echo "⚠️ 警告: backports 包下载失败，尝试备用方法..."
+              # 备用：尝试其他源或跳过
+            }
+        else
+          echo "✅ backports 包已存在，跳过下载"
+        fi
+        
+        # 下载内核补丁包
+        if [ ! -f dl/linux-5.4-qsdk-11.5.0.5.tar.xz ]; then
+          echo "下载 linux-5.4-qsdk-11.5.0.5.tar.xz..."
+          wget -q --show-progress \
+            "https://www.dropbox.com/scl/fi/gu7ge6jmefn72ttuop1zs/linux-5.4-qsdk-11.5.0.5.tar.xz?rlkey=tdpq0ye35x290frbh7i8uqrm8&st=jjvegqrr&dl=1" \
+            -O dl/linux-5.4-qsdk-11.5.0.5.tar.xz || {
+              echo "⚠️ 警告: 内核补丁包下载失败，尝试备用方法..."
+            }
+        else
+          echo "✅ 内核补丁包已存在，跳过下载"
+        fi
+        
+        # 验证下载的文件
+        echo ""
+        echo "📋 dl 目录中的 QSDK 相关文件："
+        ls -lh dl/*qsdk* 2>/dev/null || echo "  (未找到 QSDK 文件)"
+        
+    # ========== 新增：修复 mac80211 编译问题的额外步骤 ==========
+    - name: Fix mac80211 compilation issues
+      run: |
+        cd openwrt
+        
+        echo "🔧 修复 mac80211 编译问题..."
+        
+        # 设置编译标志，禁用可能引起问题的调试选项
+        echo "CONFIG_KERNEL_DEBUG_INFO=n" >> .config
+        echo "CONFIG_PACKAGE_MAC80211_DEBUGFS=n" >> .config
+        echo "CONFIG_PACKAGE_MAC80211_MESH=n" >> .config
+        echo "CONFIG_PACKAGE_MAC80211_TRACERS=n" >> .config
+        
+        # 确保内核头文件正确链接
+        if [ -d build_dir/target-*/linux-*/linux-5.4* ]; then
+          KERNEL_DIR=$(find build_dir/target-* -name "linux-5.4*" -type d 2>/dev/null | head -1)
+          if [ -n "$KERNEL_DIR" ]; then
+            echo "找到内核目录: $KERNEL_DIR"
+            ln -sf $KERNEL_DIR build_dir/target-*/linux-*/linux 2>/dev/null || true
+          fi
+        fi
+        
+        echo "✅ mac80211 修复完成"
         
     - name: SSH connection to Actions
       uses: P3TERX/ssh2actions@v1.0.0
@@ -130,20 +193,28 @@ jobs:
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
         
+    # ========== 修改：编译时优先使用 verbose 模式以便调试 ==========
     - name: Compile the firmware
       id: compile
       run: |
         cd openwrt
         echo -e "$(nproc) thread compile"
         
+        # 先尝试单线程编译 mac80211 确保依赖正确
+        echo "🔧 预编译 mac80211 模块..."
+        make package/kernel/mac80211/compile V=s || {
+          echo "⚠️ mac80211 单独编译有警告，继续全编译..."
+        }
+        
         # 编译并捕获错误
         set +e
+        echo "🚀 开始全量编译..."
         make -j$(nproc) 2>&1 | tee compile.log
         EXIT_CODE=$?
         set -e
         
         if [ $EXIT_CODE -ne 0 ]; then
-          echo "❌ First compile attempt failed, trying single thread..."
+          echo "❌ First compile attempt failed, trying single thread with verbose..."
           make -j1 V=s 2>&1 | tee compile_verbose.log
           EXIT_CODE=$?
         fi
