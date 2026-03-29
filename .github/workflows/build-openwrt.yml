@@ -5,10 +5,10 @@
 # See /LICENSE for more information.
 #
 # https://github.com/P3TERX/Actions-OpenWrt
-# Description: Build OpenWrt using GitHub Actions
+# Description: Build OpenWrt using GitHub Actions for CMCC RAX3000Q
 #
 
-name: Build OpenWrt
+name: Build OpenWrt for CMCC RAX3000Q
 
 on:
   repository_dispatch:
@@ -23,15 +23,14 @@ on:
     - cron: 0 8 * * 2
 
 env:
-  REPO_URL: https://github.com/kkstone/immortalwrt-ipq50xx
-  REPO_BRANCH: openwrt-21.02
+  REPO_URL: https://github.com/tiegenb/openwrt-rax3000QY
+  REPO_BRANCH: ipq50xx-qsdk-kernel-5.4-openwrt-21.02-qsdk-11.5.05.841.1029
   FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: .config
   DIY_P1_SH: diy-part1.sh
   DIY_P2_SH: diy-part2.sh
   UPLOAD_BIN_DIR: true
   UPLOAD_FIRMWARE: true
-  UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
 
 jobs:
@@ -93,7 +92,7 @@ jobs:
       uses: klever1988/cachewrtbuild@main
       with:
         ccache: 'true'
-        mixkey: 'immortalwrt21-cortexa7-vfpv4'
+        mixkey: 'rax3000q-5.4'
         prefix: ${{ github.workspace }}/openwrt
 
     - name: Load custom feeds
@@ -142,6 +141,15 @@ jobs:
         unzip luci-app-turboacc.zip -d feeds/luci/applications/
         rm -rf luci-app-turboacc.zip
 
+    - name: Add required packages
+      run: |
+        cd openwrt
+        
+        # 添加 aircrack-ng, airmon-ng, hcxdumptool 到配置
+        echo "CONFIG_PACKAGE_aircrack-ng=y" >> .config
+        echo "CONFIG_PACKAGE_airmon-ng=y" >> .config
+        echo "CONFIG_PACKAGE_hcxdumptool=y" >> .config
+
     - name: Load custom configuration
       run: |
         [ -e files ] && mv files openwrt/files
@@ -150,6 +158,28 @@ jobs:
         cd openwrt
         $GITHUB_WORKSPACE/$DIY_P2_SH
 
+    - name: Modify LAN IP address
+      run: |
+        cd openwrt
+        
+        # 修改默认LAN IP为192.168.66.1
+        if grep -q "CONFIG_PACKAGE_luci" .config; then
+          # 创建uci-defaults脚本设置IP
+          mkdir -p files/etc/uci-defaults
+          cat > files/etc/uci-defaults/99-default-ip << 'EOF'
+#!/bin/sh
+uci set network.lan.ipaddr='192.168.66.1'
+uci commit network
+exit 0
+EOF
+          chmod +x files/etc/uci-defaults/99-default-ip
+        fi
+        
+        # 同时修改package/base-files中的默认配置
+        if [ -f package/base-files/files/bin/config_generate ]; then
+          sed -i 's/192.168.1.1/192.168.66.1/g' package/base-files/files/bin/config_generate
+        fi
+
     - name: SSH connection to Actions
       uses: P3TERX/ssh2actions@v1.0.0
       if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh  != 'false') || contains(github.event.action, 'ssh')
@@ -157,12 +187,12 @@ jobs:
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
 
-    - name: Fix some download failed first
-      run: |
-        cd openwrt
-        mkdir dl
-        wget "https://www.dropbox.com/scl/fi/9ts30p2csnlb9imaf8k68/backports-20210222-5.4-qsdk-11.5.0.5.tar.xz?rlkey=sntbyfjgg86gu2uoocgb9ggp1&st=7w81hl56&dl=1" -O dl/backports-20210222-5.4-qsdk-11.5.0.5.tar.xz
-        wget "https://www.dropbox.com/scl/fi/gu7ge6jmefn72ttuop1zs/linux-5.4-qsdk-11.5.0.5.tar.xz?rlkey=tdpq0ye35x290frbh7i8uqrm8&st=jjvegqrr&dl=1" -O dl/linux-5.4-qsdk-11.5.0.5.tar.xz
+   # - name: Fix some download failed first
+   #  run: |
+       # cd openwrt
+       # mkdir -p dl
+       # wget "https://www.dropbox.com/scl/fi/9ts30p2csnlb9imaf8k68/backports-20210222-5.4-qsdk-11.5.0.5.tar.xz?rlkey=sntbyfjgg86gu2uoocgb9ggp1&st=7w81hl56&dl=1" -O dl/backports-20210222-5.4-qsdk-11.5.0.5.tar.xz
+       # wget "https://www.dropbox.com/scl/fi/gu7ge6jmefn72ttuop1zs/linux-5.4-qsdk-11.5.0.5.tar.xz?rlkey=tdpq0ye35x290frbh7i8uqrm8&st=jjvegqrr&dl=1" -O dl/linux-5.4-qsdk-11.5.0.5.tar.xz
 
     - name: Download package
       id: package
@@ -192,7 +222,7 @@ jobs:
       uses: actions/upload-artifact@main
       if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
       with:
-        name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+        name: OpenWrt_bin_CMCC_RAX3000Q${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
         path: openwrt/bin
 
     - name: Organize files
@@ -208,38 +238,5 @@ jobs:
       uses: actions/upload-artifact@main
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
-        name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+        name: CMCC_RAX3000Q_Firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
         path: ${{ env.FIRMWARE }}
-
-    - name: Generate release tag
-      id: tag
-      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
-      run: |
-        echo "release_tag=RAX3000Q-$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
-        touch release.txt
-        echo "status=success" >> $GITHUB_OUTPUT
-
-    - name: Upload firmware to release
-      uses: softprops/action-gh-release@v1
-      if: steps.tag.outputs.status == 'success' && !cancelled()
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ steps.tag.outputs.release_tag }}
-        body_path: release.txt
-        files: ${{ env.FIRMWARE }}/*
-
-    - name: Delete workflow runs
-      uses: Mattraks/delete-workflow-runs@main
-      with:
-        retain_days: 1
-        keep_minimum_runs: 3
-
-    - name: Remove old Releases
-      uses: dev-drprasad/delete-older-releases@v0.2.1
-      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
-      with:
-        keep_latest: 5
-        delete_tags: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
