@@ -4,20 +4,24 @@
 # This is free software, licensed under the MIT License.
 # See /LICENSE for more information.
 #
-# https://github.com/P3TERX/Actions-OpenWrt
-# Description: Build OpenWrt using GitHub Actions for CMCC RAX3000Q
+# https://githubfast.com/P3TERX/Actions-OpenWrt
+# Description: Build OpenWrt using GitHub Actions
 #
 
-name: Build OpenWrt for CMCC RAX3000Q
+name: Build RAX30000QY
 
 on:
+  repository_dispatch:
   workflow_dispatch:
     inputs:
       ssh:
         description: 'SSH connection to Actions'
         required: false
         default: 'false'
-        type: boolean
+
+env:
+  # 强制 actions 使用 Node.js 24（解决 Node.js 20 弃用警告）
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 env:
   REPO_URL: https://github.com/tiegenb/openwrt-rax3000QY
@@ -29,149 +33,47 @@ env:
   UPLOAD_BIN_DIR: true
   UPLOAD_FIRMWARE: true
   TZ: Asia/Shanghai
-
 jobs:
   build:
     runs-on: ubuntu-22.04
 
     steps:
     - name: Checkout
-      uses: actions/checkout@main
+      uses: actions/checkout@v4
 
     - name: Initialization environment
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
-        dpkg-query -Wf '${Installed-Size}\t${Package}\n' | sort -n | tail -n 100
-        df -h
-        echo "Removing large packages"
-        sudo apt-get remove -y '^dotnet-.*'
-        sudo apt-get remove -y '^llvm-.*'
-        sudo apt-get remove -y 'php.*'
-        sudo apt-get remove -y '^mongodb-.*'
-        sudo apt-get remove -y '^mysql-.*'
-        sudo apt-get remove -y azure-cli google-cloud-sdk google-chrome-stable firefox powershell mono-devel libgl1-mesa-dri
-        sudo apt-get autoremove -y
-        sudo apt-get clean
-        df -h
-        echo "Removing large directories"
-        sudo rm -rf /usr/share/dotnet/
-        sudo rm -rf /usr/local/graalvm/
-        sudo rm -rf /usr/local/.ghcup/
-        sudo rm -rf /usr/local/share/powershell
-        sudo rm -rf /usr/local/share/chromium
-        sudo rm -rf /usr/local/lib/android
-        sudo rm -rf /usr/local/lib/node_modules
-        df -h
-        sudo -E apt-get -qq update
-        sudo apt install -y ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
-          bzip2 ccache clang cmake cpio curl device-tree-compiler ecj fastjar flex gawk gettext gcc-multilib \
-          g++-multilib git gnutls-dev gperf haveged help2man intltool lib32gcc-s1 libc6-dev-i386 libelf-dev \
-          libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5 \
-          libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool lld llvm lrzsz mkisofs msmtp \
-          nano ninja-build p7zip p7zip-full patch pkgconf python2.7 python3 python3-pip python3-ply \
-          python3-pyelftools qemu-utils re2c rsync scons squashfs-tools subversion swig \
-          texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev
-        sudo -E apt-get -qq autoremove --purge
-        sudo -E apt-get -qq clean
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        sudo apt update
+        sudo apt install build-essential clang flex g++ gawk gcc-multilib gettext \
+        git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev
         sudo timedatectl set-timezone "$TZ"
         sudo mkdir -p /workdir
         sudo chown $USER:$GROUPS /workdir
-
+        
+        # 初始空间检查
+        echo "=== Initial disk space ==="
+        df -h
+        
     - name: Clone source code
       working-directory: /workdir
       run: |
         df -hT $PWD
         git clone $REPO_URL -b $REPO_BRANCH openwrt
         ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
-
-    - name: Enable build ccache
-      uses: klever1988/cachewrtbuild@main
-      with:
-        ccache: 'true'
-        mixkey: 'rax3000q-5.4'
-        prefix: ${{ github.workspace }}/openwrt
-
-    - name: Load custom feeds
-      run: |
-        [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
-        chmod +x $DIY_P1_SH
-        cd openwrt
-        $GITHUB_WORKSPACE/$DIY_P1_SH
-   
+        
     - name: Update feeds
       run: cd openwrt && ./scripts/feeds update -a
-
-    - name: Fix golang version
-      run: |
-        cd openwrt
-        rm -rf feeds/packages/lang/golang
-        git clone https://github.com/kenzok8/golang -b 1.25 feeds/packages/lang/golang
 
     - name: Install feeds
       run: cd openwrt && ./scripts/feeds install -a
 
-    - name: Upgrade some network software version
-      run: |
-        cd openwrt
-
-        rm -rf feeds/packages/net/natmap
-        wget -r --no-parent https://cdn.jsdelivr.net/gh/immortalwrt/packages@master/net/natmap/
-        cp -rf cdn.jsdelivr.net/gh/immortalwrt/packages@master/net/natmap feeds/packages/net/natmap/
-        rm -rf cdn.jsdelivr.net
-        find feeds/packages/net/natmap -name index.html -exec rm {} \;
-
-        rm -rf feeds/packages/net/ddns-go
-        wget -r --no-parent https://cdn.jsdelivr.net/gh/immortalwrt/packages@master/net/ddns-go/
-        cp -rf cdn.jsdelivr.net/gh/immortalwrt/packages@master/net/ddns-go feeds/packages/net/ddns-go/
-        rm -rf cdn.jsdelivr.net
-        find feeds/packages/net/ddns-go -name index.html -exec rm {} \;    
-
-        rm -rf feeds/packages/net/frp
-        wget -r --no-parent https://cdn.jsdelivr.net/gh/immortalwrt/packages@master/net/frp/
-        cp -rf cdn.jsdelivr.net/gh/immortalwrt/packages@master/net/frp feeds/packages/net/frp/
-        rm -rf cdn.jsdelivr.net
-        find feeds/packages/net/frp -name index.html -exec rm {} \; 
-
-        wget "https://www.dropbox.com/scl/fi/uccikbibj772c4sekzbk7/luci-app-turboacc.zip?rlkey=yzhkk0lfzhrthn8hbl1qt8k5j&st=31820445&dl=1" -O luci-app-turboacc.zip
-        rm -rf feeds/luci/applications/luci-app-turboacc
-        unzip luci-app-turboacc.zip -d feeds/luci/applications/
-        rm -rf luci-app-turboacc.zip
-
-    - name: Add required packages
-      run: |
-        cd openwrt
-        
-        # Add aircrack-ng, airmon-ng, hcxdumptool to config
-        echo "CONFIG_PACKAGE_aircrack-ng=y" >> .config
-        echo "CONFIG_PACKAGE_airmon-ng=y" >> .config
-        echo "CONFIG_PACKAGE_hcxdumptool=y" >> .config
-
     - name: Load custom configuration
-      run: |
-        [ -e files ] && mv files openwrt/files
+      run: |        
         [ -e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/.config
-        chmod +x $DIY_P2_SH
-        cd openwrt
-        $GITHUB_WORKSPACE/$DIY_P2_SH
-
-    - name: Modify LAN IP address
-      run: |
-        cd openwrt
         
-        # Modify default LAN IP to 192.168.66.1
-        mkdir -p files/etc/uci-defaults
-        echo '#!/bin/sh' > files/etc/uci-defaults/99-default-ip
-        echo 'uci set network.lan.ipaddr='\''192.168.66.1'\''' >> files/etc/uci-defaults/99-default-ip
-        echo 'uci commit network' >> files/etc/uci-defaults/99-default-ip
-        echo 'exit 0' >> files/etc/uci-defaults/99-default-ip
-        chmod +x files/etc/uci-defaults/99-default-ip
-        
-        # Also modify default config in package/base-files
-        if [ -f package/base-files/files/bin/config_generate ]; then
-          sed -i 's/192.168.1.1/192.168.66.1/g' package/base-files/files/bin/config_generate
-        fi
-
     - name: SSH connection to Actions
       uses: P3TERX/ssh2actions@v1.0.0
       if: (github.event.inputs.ssh == 'true' && github.event.inputs.ssh  != 'false') || contains(github.event.action, 'ssh')
@@ -179,6 +81,58 @@ jobs:
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
 
+    - name: Add custom packages and modify LAN IP
+      run: |
+        cd openwrt
+        
+        # 添加软件包配置
+        cat >> .config << EOF
+        
+        # 添加 WWAN3 相关软件包
+        CONFIG_PACKAGE_wwan=y
+        CONFIG_PACKAGE_comgt=y
+        CONFIG_PACKAGE_comgt-directip=y
+        CONFIG_PACKAGE_comgt-ncm=y
+        CONFIG_PACKAGE_umbim=y
+        CONFIG_PACKAGE_uqmi=y
+        CONFIG_PACKAGE_modemmanager=y
+        CONFIG_PACKAGE_libmbim=y
+        CONFIG_PACKAGE_libqmi=y
+        
+        # 无线安全工具
+        CONFIG_PACKAGE_aircrack-ng=y
+        CONFIG_PACKAGE_airmon-ng=y
+        CONFIG_PACKAGE_hcxdumptool=y
+        CONFIG_PACKAGE_hcxtools=y
+        
+        # Material 主题
+        CONFIG_PACKAGE_luci-theme-material=y
+        CONFIG_PACKAGE_luci-i18n-material-zh-cn=y
+        
+        EOF
+        
+        # 创建 uci-defaults 脚本（最可靠的方法）
+        echo "Creating uci-defaults script to set LAN IP"
+        mkdir -p package/base-files/files/etc/uci-defaults
+        cat > package/base-files/files/etc/uci-defaults/99_set_lan_ip << 'EOF'
+        #!/bin/sh
+        # 设置 LAN IP 为 192.168.66.1
+        uci set network.lan.ipaddr='192.168.66.1'
+        uci commit network
+        # 同时修改 DHCP 网关选项
+        uci set dhcp.lan.dhcp_option='3,192.168.66.1'
+        uci commit dhcp
+        exit 0
+        EOF
+        chmod +x package/base-files/files/etc/uci-defaults/99_set_lan_ip
+        
+        # 也修改 config_generate（如果存在）
+        if [ -f "package/base-files/files/bin/config_generate" ]; then
+          sed -i 's/192.168.1.1/192.168.66.1/g' package/base-files/files/bin/config_generate
+        fi
+        
+        echo "✅ LAN IP set to 192.168.66.1"
+        
     - name: Download package
       id: package
       run: |
@@ -187,41 +141,130 @@ jobs:
         make download -j8
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
-
+        
     - name: Compile the firmware
       id: compile
       run: |
         cd openwrt
         echo -e "$(nproc) thread compile"
-        make -j$(nproc) || make -j1 || make -j1 V=s
+        
+        # 编译并捕获错误
+        set +e
+        make -j$(nproc) 2>&1 | tee compile.log
+        EXIT_CODE=$?
+        set -e
+        
+        if [ $EXIT_CODE -ne 0 ]; then
+          echo "❌ First compile attempt failed, trying single thread..."
+          make -j1 V=s 2>&1 | tee compile_verbose.log
+          EXIT_CODE=$?
+        fi
+        
+        if [ $EXIT_CODE -ne 0 ]; then
+          echo "status=failed" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+        
         echo "status=success" >> $GITHUB_OUTPUT
-        grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
-        [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
         
-    - name: Check space usage
-      if: (!cancelled())
-      run: df -hT
-
-    - name: Upload bin directory
-      uses: actions/upload-artifact@main
-      if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
+    - name: Upload compile logs (if failed)
+      uses: actions/upload-artifact@v4
+      if: failure()
       with:
-        name: OpenWrt_bin_CMCC_RAX3000Q${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
-        path: openwrt/bin
+        name: compile-logs-${{ env.FILE_DATE }}
+        path: |
+          openwrt/compile.log
+          openwrt/compile_verbose.log
+        retention-days: 7
 
-    - name: Organize files
-      id: organize
-      if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
+    # ========== 关键修改部分：智能固件收集 ==========
+    - name: 收集所有固件文件
       run: |
-        cd openwrt/bin/targets/*/*
-        rm -rf packages
-        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
-        echo "status=success" >> $GITHUB_OUTPUT
-
-    - name: Upload firmware directory
-      uses: actions/upload-artifact@main
-      if: steps.organize.outputs.status == 'success' && !cancelled()
+        cd openwrt
+        echo "🔍 正在搜索所有编译生成的固件文件..."
+        
+        # 创建统一的固件收集目录
+        mkdir -p $GITHUB_WORKSPACE/firmware-collection
+        
+        # 显示目录结构用于调试
+        echo "📁 bin/targets/ 目录结构："
+        find bin/targets/ -type d 2>/dev/null | head -20 || echo "bin/targets/ 不存在"
+        
+        # 查找并复制所有可能的固件文件
+        echo "📦 查找固件文件..."
+        find bin/targets/ -type f \( \
+          -name "*.bin" -o \
+          -name "*.img" -o \
+          -name "*.ubi" -o \
+          -name "*.tar" -o \
+          -name "*.gz" -o \
+          -name "*.xz" -o \
+          -name "*squashfs*" -o \
+          -name "*sysupgrade*" -o \
+          -name "*factory*" \
+        \) -exec cp -v {} $GITHUB_WORKSPACE/firmware-collection/ \; 2>/dev/null || echo "未找到固件文件"
+        
+        # 同时复制 profiles.json（包含固件信息）
+        find bin/targets/ -name "profiles.json" -exec cp -v {} $GITHUB_WORKSPACE/firmware-collection/ \; 2>/dev/null || true
+        
+        # 列出找到的所有文件
+        echo ""
+        echo "✅ 已收集以下文件："
+        ls -la $GITHUB_WORKSPACE/firmware-collection/ || echo "目录为空"
+        
+        # 统计文件数量
+        count=$(ls -1 $GITHUB_WORKSPACE/firmware-collection/ 2>/dev/null | wc -l)
+        echo ""
+        echo "📊 共找到 $count 个文件"
+        
+        # 如果没找到任何文件，输出详细调试信息
+        if [ $count -eq 0 ]; then
+          echo ""
+          echo "⚠️ 警告：没有找到任何固件文件！"
+          echo ""
+          echo "📁 完整的 bin/targets/ 目录结构："
+          find bin/targets/ -type f 2>/dev/null | head -50 || echo "  (无文件)"
+          echo ""
+          echo "📁 完整的 bin/ 目录结构："
+          find bin/ -type f 2>/dev/null | head -50 || echo "  (无文件)"
+          echo ""
+          echo "📁 编译状态检查："
+          if [ -f ".config" ]; then
+            echo "  .config 存在"
+            grep "CONFIG_TARGET" .config | grep "=y" | head -5
+          else
+            echo "  .config 不存在"
+          fi
+        fi
+        
+    - name: 上传固件（统一收集版）
+      if: success() || failure()  # 即使编译有警告也尝试上传
+      uses: actions/upload-artifact@v4
       with:
-        name: CMCC_RAX3000Q_Firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
-        path: ${{ env.FIRMWARE }}
+        name: OpenWrt-RAX3000QY-${{ env.FILE_DATE }}
+        path: firmware-collection/
+        retention-days: 7
+        if-no-files-found: warn
+        
+    - name: 上传编译日志和配置（调试用）
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-debug-info-${{ env.FILE_DATE }}
+        path: |
+          openwrt/.config
+          openwrt/feeds.conf.default
+          openwrt/compile.log
+          openwrt/compile_verbose.log
+          openwrt/bin/targets/*/profiles.json
+        retention-days: 7
+        if-no-files-found: warn
+        
+    - name: Final cleanup
+      if: always()
+      run: |
+        echo "=== Final cleanup ==="
+        sudo rm -rf /workdir
+        sudo apt clean
+        df -h
