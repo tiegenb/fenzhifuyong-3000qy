@@ -11,7 +11,6 @@
 name: Build OpenWrt for CMCC RAX3000Q
 
 on:
-  repository_dispatch:
   workflow_dispatch:
     inputs:
       ssh:
@@ -19,8 +18,6 @@ on:
         required: false
         default: 'false'
         type: boolean
-  schedule:
-    - cron: 0 8 * * 2
 
 env:
   REPO_URL: https://github.com/tiegenb/openwrt-rax3000QY
@@ -145,7 +142,7 @@ jobs:
       run: |
         cd openwrt
         
-        # 添加 aircrack-ng, airmon-ng, hcxdumptool 到配置
+        # Add aircrack-ng, airmon-ng, hcxdumptool to config
         echo "CONFIG_PACKAGE_aircrack-ng=y" >> .config
         echo "CONFIG_PACKAGE_airmon-ng=y" >> .config
         echo "CONFIG_PACKAGE_hcxdumptool=y" >> .config
@@ -159,21 +156,21 @@ jobs:
         $GITHUB_WORKSPACE/$DIY_P2_SH
 
     - name: Modify LAN IP address
-  run: |
-    cd openwrt
-    
-    # 修改默认LAN IP为192.168.66.1
-    mkdir -p files/etc/uci-defaults
-    echo '#!/bin/sh' > files/etc/uci-defaults/99-default-ip
-    echo 'uci set network.lan.ipaddr='\''192.168.66.1'\''' >> files/etc/uci-defaults/99-default-ip
-    echo 'uci commit network' >> files/etc/uci-defaults/99-default-ip
-    echo 'exit 0' >> files/etc/uci-defaults/99-default-ip
-    chmod +x files/etc/uci-defaults/99-default-ip
-    
-    # 同时修改package/base-files中的默认配置
-    if [ -f package/base-files/files/bin/config_generate ]; then
-      sed -i 's/192.168.1.1/192.168.66.1/g' package/base-files/files/bin/config_generate
-    fi
+      run: |
+        cd openwrt
+        
+        # Modify default LAN IP to 192.168.66.1
+        mkdir -p files/etc/uci-defaults
+        echo '#!/bin/sh' > files/etc/uci-defaults/99-default-ip
+        echo 'uci set network.lan.ipaddr='\''192.168.66.1'\''' >> files/etc/uci-defaults/99-default-ip
+        echo 'uci commit network' >> files/etc/uci-defaults/99-default-ip
+        echo 'exit 0' >> files/etc/uci-defaults/99-default-ip
+        chmod +x files/etc/uci-defaults/99-default-ip
+        
+        # Also modify default config in package/base-files
+        if [ -f package/base-files/files/bin/config_generate ]; then
+          sed -i 's/192.168.1.1/192.168.66.1/g' package/base-files/files/bin/config_generate
+        fi
 
     - name: SSH connection to Actions
       uses: P3TERX/ssh2actions@v1.0.0
@@ -181,13 +178,6 @@ jobs:
       env:
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-
-   # - name: Fix some download failed first
-   #  run: |
-       # cd openwrt
-       # mkdir -p dl
-       # wget "https://www.dropbox.com/scl/fi/9ts30p2csnlb9imaf8k68/backports-20210222-5.4-qsdk-11.5.0.5.tar.xz?rlkey=sntbyfjgg86gu2uoocgb9ggp1&st=7w81hl56&dl=1" -O dl/backports-20210222-5.4-qsdk-11.5.0.5.tar.xz
-       # wget "https://www.dropbox.com/scl/fi/gu7ge6jmefn72ttuop1zs/linux-5.4-qsdk-11.5.0.5.tar.xz?rlkey=tdpq0ye35x290frbh7i8uqrm8&st=jjvegqrr&dl=1" -O dl/linux-5.4-qsdk-11.5.0.5.tar.xz
 
     - name: Download package
       id: package
