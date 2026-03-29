@@ -22,8 +22,6 @@ on:
 env:
   # 强制 actions 使用 Node.js 24（解决 Node.js 20 弃用警告）
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
-env:
   REPO_URL: https://github.com/tiegenb/openwrt-rax3000QY
   REPO_BRANCH: ipq50xx-qsdk-kernel-5.4-openwrt-21.02-qsdk-11.5.05.841.1029
   FEEDS_CONF: feeds.conf.default
@@ -87,17 +85,7 @@ jobs:
         
         # 添加软件包配置
         cat >> .config << EOF
-        
-        # 添加 WWAN3 相关软件包
-        CONFIG_PACKAGE_wwan=y
-        CONFIG_PACKAGE_comgt=y
-        CONFIG_PACKAGE_comgt-directip=y
-        CONFIG_PACKAGE_comgt-ncm=y
-        CONFIG_PACKAGE_umbim=y
-        CONFIG_PACKAGE_uqmi=y
-        CONFIG_PACKAGE_modemmanager=y
-        CONFIG_PACKAGE_libmbim=y
-        CONFIG_PACKAGE_libqmi=y
+      
         
         # 无线安全工具
         CONFIG_PACKAGE_aircrack-ng=y
